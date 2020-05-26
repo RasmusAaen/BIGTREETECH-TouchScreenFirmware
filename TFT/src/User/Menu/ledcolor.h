@@ -1,5 +1,5 @@
 #ifndef _LEDCOLOR_H_
-#define _LEDCPLOR_H_
+#define _LEDCOLOR_H_
 
 #include "variants.h"
 #include "menu.h"
@@ -7,11 +7,11 @@
 #define LED_OFF                   0x00000000
 #define LED_WHITE                 0x00FFFFFF
 #define LED_RED                   0x0000FF00
-#define LED_ORANGE                0x00FF8C00
+#define LED_ORANGE                0x008CFF00
 #define LED_YELLOW                0x00FFFF00
 #define LED_GREEN                 0x00FF0000
 #define LED_BLUE                  0x000000FF
-#define LED_INDIGO                0x004B0082D
+#define LED_INDIGO                0x00004B82
 #define LED_VIOLET                0x0000FEFE
 
 //Color macro  //颜色宏定            /*R G B*/
@@ -153,19 +153,16 @@
 #define COLOR_BLACK                 0x000000
 
 //preset color list
-#ifdef LED_color_PIN
-  #define _PSC  6 //presacler register
-  #define _ARR  5 //reload value of the timer counter
+#ifdef LED_COLOR_PIN
+  #define LED_COLOR_NUM 9
 
-  #define LED_color_NUM 9
+  extern const LABEL itemLedcolor[LED_COLOR_NUM];
 
-  extern const LABEL itemLedcolor[LED_color_NUM];
-
-  extern const uint32_t led_color[LED_color_NUM];
+  extern const uint32_t led_color[LED_COLOR_NUM];
 
   void knob_LED_Init(void);
   void knob_LED_DeInit(void);
-  void ws2812_send_DAT(uint32_t ws2812_dat);
+  void WS2812_Send_DAT(uint32_t ws2812_dat);
 #endif
 
 #endif

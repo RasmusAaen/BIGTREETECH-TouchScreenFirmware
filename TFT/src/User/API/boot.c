@@ -1,26 +1,45 @@
 #include "boot.h"
 #include "includes.h"
 
-const GUI_RECT iconUpdateRect = {(LCD_WIDTH - ICON_WIDTH)/2,              (LCD_HEIGHT - ICON_HEIGHT)/2,
-                                 (LCD_WIDTH - ICON_WIDTH)/2 + ICON_WIDTH, (LCD_HEIGHT - ICON_HEIGHT)/2 + ICON_HEIGHT};
-const GUI_RECT labelUpdateRect = {0,        (LCD_HEIGHT - ICON_HEIGHT)/2 + ICON_HEIGHT,
-                                 LCD_WIDTH, (LCD_HEIGHT - ICON_HEIGHT)/2 + ICON_HEIGHT + BYTE_HEIGHT};
+#define PADDING 10
+const GUI_RECT labelUpdateRect = {0,      BYTE_HEIGHT + PADDING,               LCD_WIDTH, (BYTE_HEIGHT*2) + PADDING};
 
+const GUI_RECT iconUpdateRect = {0, (BYTE_HEIGHT*2) + PADDING*2,               LCD_WIDTH, (BYTE_HEIGHT*2) + PADDING*3 + ICON_HEIGHT};
+
+const GUI_RECT statUpdateRect = {0, (BYTE_HEIGHT*3) + PADDING*3 + ICON_HEIGHT, LCD_WIDTH, (BYTE_HEIGHT*4) + PADDING*3 + ICON_HEIGHT};
+
+const GUI_RECT labelFailedRect = {0,(BYTE_HEIGHT*4) + PADDING*4 + ICON_HEIGHT, LCD_WIDTH, (BYTE_HEIGHT*5) + PADDING*4 + ICON_HEIGHT};
+
+const u16 skipped_icons[] = {ICON_STATUS_NOZZLE,
+                            ICON_STATUS_BED,
+                            ICON_STATUS_FAN,
+                            ICON_STATUS_FLOW,
+                            ICON_STATUS_SPEED,
+                            ICON_HEAT_FAN,
+                            ICON_HOME_MOVE,
+                            ICON_COOLDOWN
+                            };
+
+GUI_POINT bmp_size;
+BMPUPDATE_STAT bmp_stat = BMP_SUCCESS;
+
+//This List is Auto-Generated. Please add new icons in icon_list.inc only
 const char iconBmpName[][32]={
-"Heat", "Move", "Home", "Print", "Extrude", "Fan", "Settings", "Leveling", "Inc", "Dec",
-"Nozzle", "Hotbed", "Temp_1", "Temp_5", "Temp_10", "Stop", "Back", "Inc_X", "Inc_Y", "Inc_Z",
-"Mmm_01", "Mmm_1", "Mmm_10", "Dec_X", "Dec_Y","Dec_Z", "Home_X", "Home_Y", "Home_Z", "Folder",
-"File", "Page_up", "Page_down", "Pause", "Resume", "Load", "Unload", "Slow", "Normal", "Fast",
-"Emm_1", "Emm_5", "Emm_10", "Full", "Half", "Rotate", "Language", "TP_Adjust", "More", "About",
-"BackGroundColor", "FontColor", "Disconnect", "BaudRate", "Percentage", "BabyStep", "Mmm_001", "OnBoardSD", "OnTFTSD", "U_Disk",
-"Point_1", "Point_2", "Point_3", "Point_4", "Marlin", "BigTreeTech", "Gcode", "BLTouch", "BLTouchDeploy",
-"BLTouchStow", "BLTouchTest", "BLTouchRepeat", "TSCSettings", "MachineSettings", "FeatureSettings", "ProbeOffset", "EEPROMSave", "SilentOn", "ShutDown",
-"RGB_Settings", "RGB_Red", "RGB_Green", "RGB_Blue", "RGB_White", "RGB_Off", "Preheat_Both", "Preheat_PLA", "Preheat_PETG", "Preheat_ABS",
-"Custom", "Home_Move", "Heat_Fan", "ManualLevel", "CoolDown", "SilentOff",
-"StatusNozzle","StatusBed","StatusFan","MainMenu","StatusSpeed","StatusFlow",
-"parametersetting", "global_nozzle", "global_bed",
-"printing_nozzle", "printing_bed", "printing_fan","printing_timer","printing_layer","printing_speed","printing_flow",
+#define X_ICON(NAME) STRINGIFY(NAME) ,
+#include "icon_list.inc"
+#undef  X_ICON
+//add new icons in icon_list.inc only
 };
+
+bool skipIcon(u16 index)
+{
+  for (int i = 0; i < COUNT(skipped_icons); i++)
+  {
+    if (index == skipped_icons[i])
+      return true;
+  }
+  return false;
+}
 
 bool bmpDecode(char *bmp, u32 addr)
 {
@@ -37,11 +56,14 @@ bool bmpDecode(char *bmp, u32 addr)
   GUI_COLOR pix;
 
   if(f_open(&bmpFile,bmp,FA_OPEN_EXISTING | FA_READ)!=FR_OK)
+  {
+    bmp_stat = BMP_NOTFOUND;
     return false;
-
+  }
   f_read(&bmpFile, magic, 2 ,&mybr);
   if (memcmp(magic, "BM", 2)){
     f_close(&bmpFile);
+    bmp_stat = BMP_INVALIDFILE;
     return false;
   }
 
@@ -51,11 +73,13 @@ bool bmpDecode(char *bmp, u32 addr)
   f_lseek(&bmpFile, 18);
   f_read(&bmpFile, &w, sizeof(int),&mybr);
   f_read(&bmpFile, &h, sizeof(int),&mybr);
-
+  bmp_size.x = w;
+  bmp_size.y = h;
   f_lseek(&bmpFile, 28);
   f_read(&bmpFile, &bpp, sizeof(short),&mybr);
   if(bpp<24){
     f_close(&bmpFile);
+    bmp_stat = BMP_NOT24BIT;
     return false;
   }
   bpp >>=3;
@@ -80,7 +104,7 @@ bool bmpDecode(char *bmp, u32 addr)
       pix.RGB.g=lcdcolor[1]>>2;
       pix.RGB.b=lcdcolor[0]>>3;
 
-//      GUI_DrawPixel(i,j,pix.color);
+      //GUI_DrawPixel(iconUpdateRect.x0 + i,iconUpdateRect.y0 + j,pix.color);
 
       buf[bnum++]=(u8)(pix.color>>8);
       buf[bnum++]=(u8)(pix.color&0xFF);
@@ -97,36 +121,100 @@ bool bmpDecode(char *bmp, u32 addr)
   W25Qxx_WritePage(buf,addr,bnum);
   addr+=bnum;
   f_close(&bmpFile);
-
+  bmp_stat = BMP_SUCCESS;
   return true;
 }
 
 void updateIcon(void)
 {
+  int found = 0;
+  int notfound = 0;
+  char tempstr[50];
   char nowBmp[64];
-  GUI_Clear(BACKGROUND_COLOR);
-  GUI_DispString(100, 5, (u8*)"Icon Updating...!");
-
-  if(bmpDecode(BMP_ROOT_DIR"/Logo.bmp", LOGO_ADDR))
+  GUI_Clear(lcd_colors[infoSettings.bg_color]);
+  GUI_DispString(5, PADDING, (u8 *)"Updating Logo");
+  GUI_ClearPrect(&iconUpdateRect);
+  if (bmpDecode(BMP_ROOT_DIR "/Logo.bmp", LOGO_ADDR))
   {
     LOGO_ReadDisplay();
+    found++;
+  }
+  else
+  {
+    notfound++;
+    dispIconFail((u8 *)(BMP_ROOT_DIR "/Logo.bmp"));
   }
 
-  GUI_Clear(BACKGROUND_COLOR);
-  for(int i=0; i<COUNT(iconBmpName); i++)
+  GUI_Clear(lcd_colors[infoSettings.bg_color]);
+  GUI_DispString(5, PADDING, (u8 *)"Updating Icons");
+
+  for (int i = 0; i < COUNT(iconBmpName); i++)
   {
-    my_sprintf(nowBmp, BMP_ROOT_DIR"/%s.bmp", iconBmpName[i]);
-    if(bmpDecode(nowBmp, ICON_ADDR(i)))
+    #ifndef UNIFIED_MENU
+      if (skipIcon(i) == true)
+        continue;
+    #endif
+    my_sprintf(nowBmp, BMP_ROOT_DIR "/%s.bmp", iconBmpName[i]);
+    GUI_ClearPrect(&labelUpdateRect);
+    GUI_DispString(labelUpdateRect.x0, labelUpdateRect.y0, (u8 *)nowBmp);
+
+    //display bmp update success
+    GUI_POINT last_size = bmp_size;
+    if (bmpDecode(nowBmp, ICON_ADDR(i)))
     {
-      GUI_ClearRect(labelUpdateRect.x0, labelUpdateRect.y0, labelUpdateRect.x1, labelUpdateRect.y1);
-      GUI_DispStringInPrect(&labelUpdateRect, (u8 *)nowBmp);
-      ICON_ReadDisplay(iconUpdateRect.x0, iconUpdateRect.y0, i);
+      found++;
+      GUI_ClearRect(iconUpdateRect.x0,iconUpdateRect.y0,iconUpdateRect.x0 + last_size.x,iconUpdateRect.y0 + last_size.y);
+      ICON_CustomReadDisplay(iconUpdateRect.x0, iconUpdateRect.y0, bmp_size.x, bmp_size.y, ICON_ADDR(i));
     }
+    //display bmp update fail
+    else
+    {
+      notfound++;
+      GUI_ClearRect(iconUpdateRect.x0,iconUpdateRect.y0,iconUpdateRect.x0 + last_size.x,iconUpdateRect.y0 + last_size.y);
+      dispIconFail((u8 *)nowBmp);
+    }
+    // Display icon update progress
+    my_sprintf(tempstr, "Updated: %d | Not Updated: %d", found, notfound);
+    GUI_DispString(statUpdateRect.x0, statUpdateRect.y0, (u8 *)tempstr);
   }
-    if(bmpDecode(BMP_ROOT_DIR"/InfoBox.bmp", INFOBOX_ADDR))
+  #ifdef UNIFIED_MENU
+    if (bmpDecode(BMP_ROOT_DIR "/InfoBox.bmp", INFOBOX_ADDR))
+    {
+      found++;
+    }
+    else
+    {
+      notfound++;
+      dispIconFail((u8 *)(BMP_ROOT_DIR "/InfoBox.bmp"));
+    }
+  #endif
+  GUI_DispStringInPrect(&statUpdateRect, (u8 *)tempstr);
+}
+
+void dispIconFail(u8 *lbl)
+{
+  GUI_SetColor(RED);
+  GUI_ClearPrect(&labelFailedRect);
+  GUI_DispString(labelFailedRect.x0, labelFailedRect.y0, lbl);
+  u8 *stat_txt;
+  switch (bmp_stat)
   {
-    ICON_CustomReadDisplay(iconUpdateRect.x0, iconUpdateRect.y0, INFOBOX_WIDTH, INFOBOX_HEIGHT,INFOBOX_ADDR);
+  case BMP_INVALIDFILE:
+    stat_txt = (u8 *)("BMP file not valid ");
+    break;
+  case BMP_NOT24BIT:
+    stat_txt = (u8 *)("Format is not 24Bit");
+    break;
+  case BMP_NOTFOUND:
+  default:
+    stat_txt = (u8 *)("BMP file not found ");
+    break;
   }
+  char error_txt[30];
+  my_sprintf(error_txt, "Error: %s", stat_txt);
+  GUI_DispString(labelFailedRect.x0, labelFailedRect.y0 + BYTE_HEIGHT + 2, (u8*)error_txt);
+  GUI_RestoreColorDefault();
+  Delay_ms(1000); // give some time to the user to read failed icon name.
 }
 
 void updateFont(char *font, u32 addr)
@@ -142,7 +230,7 @@ void updateFont(char *font, u32 addr)
 
   tempbuf = malloc(W25QXX_SECTOR_SIZE);
   if (tempbuf == NULL)  return;
-  GUI_Clear(BACKGROUND_COLOR);
+  GUI_Clear(lcd_colors[infoSettings.bg_color]);
   my_sprintf((void *)buffer,"%s Size: %dKB",font, (u32)f_size(&myfp)>>10);
   GUI_DispString(0, 100, (u8*)buffer);
   GUI_DispString(0, 140, (u8*)"Updating:   %");
@@ -171,10 +259,11 @@ void scanResetDir(void) {
     if (f_file_exists(TFT_RESET_FILE ".DONE")) {
       f_unlink(TFT_RESET_FILE ".DONE");
     }
-    f_rename(TFT_RESET_FILE, TFT_RESET_FILE ".DONE");
     infoSettingsReset();
+    LCD_RefreshDirection();
     TSC_Calibration();
     storePara();
+    f_rename(TFT_RESET_FILE, TFT_RESET_FILE ".DONE");
   }
 }
 
@@ -183,7 +272,7 @@ void scanRenameUpdate(void) {
 
   if (f_dir_exists(ROOT_DIR)) { // ROOT_DIR exists
     if (f_dir_exists(ROOT_DIR ".CUR")) { // old ROOT_DIR also exists
-      GUI_Clear(BACKGROUND_COLOR);
+      GUI_Clear(lcd_colors[infoSettings.bg_color]);
       // It will take some time to delete the old ROOT_DIR, so display "Deleting" on the screen to tell user.
       GUI_DispStringInRect(0, 0, LCD_WIDTH, LCD_HEIGHT, (uint8_t *)"Deleting old ROOT_DIR...");
       f_remove_full_dir(ROOT_DIR ".CUR");
@@ -197,6 +286,12 @@ void scanRenameUpdate(void) {
     }
     f_rename(FIRMWARE_NAME ".bin", FIRMWARE_NAME ".CUR");
   }
+  if (f_file_exists(CONFIG_FILE_PATH)) { // config exists
+    if (f_file_exists(CONFIG_FILE_PATH ".CUR")) { // old config also exists
+      f_unlink(CONFIG_FILE_PATH ".CUR");
+    }
+    f_rename(CONFIG_FILE_PATH, CONFIG_FILE_PATH ".CUR");
+  }
 }
 
 void scanUpdates(void)
@@ -209,6 +304,7 @@ void scanUpdates(void)
     if (f_dir_exists(BMP_ROOT_DIR)) {
       updateIcon();
     }
+    getConfigFromFile();
     scanRenameUpdate();
     scanResetDir();
   }

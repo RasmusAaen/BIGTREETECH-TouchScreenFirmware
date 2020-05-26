@@ -4,7 +4,7 @@
 //1 title, ITEM_PER_PAGE items(icon + label)
 const MENUITEMS UnifiedHeatItems = {
 // title
-lABEL_UNIFIEDHEAT,
+LABEL_UNIFIEDHEAT,
 // icon                       label
  {{ICON_HEAT,                 LABEL_PREHEAT},
   {ICON_HEAT,                 LABEL_HEAT},
@@ -29,7 +29,7 @@ void menuUnifiedHeat(void)
       case KEY_ICON_1: infoMenu.menu[++infoMenu.cur] = menuHeat;    break;
       case KEY_ICON_2: infoMenu.menu[++infoMenu.cur] = menuFan;    break;
       case KEY_ICON_3:
-        for(TOOL i = BED; i < HEATER_NUM; i++)
+        for(TOOL i = BED; i < HEATER_COUNT; i++)
         {
           heatSetTargetTemp(i, 0);
         }
